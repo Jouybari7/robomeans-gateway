@@ -1,0 +1,88 @@
+✅ 1. Go to EC2 Dashboard
+URL: https://console.aws.amazon.com/ec2
+
+Click Launch Instance
+
+✅ 2. Configure Your Instance
+Setting	Value
+Name	robomeans-gateway
+Amazon Machine Image	Ubuntu 22.04 LTS
+Instance Type	t2.micro (Free Tier or cheap dev)
+Key pair	Create or use existing one (e.g., robomeans-key)
+Network Settings	Allow SSH and Custom TCP (8000)
+Storage	8 GB or more
+Under "Firewall → Add Rule", add:
+
+Type: Custom TCP
+
+Port Range: 8000
+
+Source: 0.0.0.0/0
+
+This allows your dashboard to connect to the backend on port 8000.
+
+
+
+
+✅ Choose: RSA
+Option	Recommended?	Why?
+RSA	✅ Yes	Works with most tools (e.g., OpenSSH, PuTTY, Git Bash, VS Code)
+ED25519	❌ No (for now)	Not supported everywhere — may cause SSH issues on some platforms
+📌 Key Pair Setup Instructions
+Choose:
+
+Key pair type: RSA
+
+Private key file format: PEM (default)
+
+Set a name, like:
+
+robomeans-key
+
+Click Create key pair
+
+It will automatically download a .pem file (e.g., robomeans-key.pem)
+
+
+
+
+✅ Step-by-Step: Open Port 22 (SSH) and 8000 (Socket.IO/FastAPI)
+When you reach the “Network Settings” section during EC2 launch:
+
+1. Expand "Network settings"
+Click on “Edit” or expand the “Network settings” section.
+
+2. Under Firewall (security groups):
+You’ll see a section like:
+
+✅ Allow SSH traffic from [ Anywhere / My IP ]
+
+Make sure this is present:
+
+Type	Protocol	Port Range	Source
+SSH	TCP	22	Anywhere (0.0.0.0/0) or My IP
+Then click Add Security Group Rule to allow port 8000.
+
+3. Add a new rule for WebSocket/FastAPI:
+Type	Protocol	Port Range	Source
+Custom TCP	TCP	8000	Anywhere (0.0.0.0/0)
+✅ This will allow your React frontend (and your local browser) to talk to the FastAPI server.
+
+4. Final Check — You should now see 2 rules:
+Type	Port	Source
+SSH	22	0.0.0.0/0
+Custom TCP	8000	0.0.0.0/0
+Once that’s set, scroll down and click Launch Instance.
+
+
+
+This allows your dashboard to connect to the backend on port 8000.
+
+Then click Launch Instance
+
+
+ssh -i ~/path-to/your-key.pem ubuntu@<your-ec2-public-ip>
+
+sudo apt update
+sudo apt install python3-pip -y
+pip3 install virtualenv
