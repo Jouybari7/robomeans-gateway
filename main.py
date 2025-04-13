@@ -1,20 +1,31 @@
 import socketio
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse
 from robot_manager import robot_connections
+import boto3
+import jwt  # PyJWT
+import os
 
-# Store UI connections and last known statuses
-ui_connections = {}         # {robot_id: [sid, sid, ...]}
-last_known_status = {}      # {robot_id: "status"}
-
+# === FastAPI and Socket.IO setup ===
 sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins="*")
 app = FastAPI()
 socket_app = socketio.ASGIApp(sio, app)
 
-# === EVENTS ===
+# === Allow CORS for frontend ===
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # For production, limit this to your frontend domain
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# === WebSocket Events ===
 
 @sio.event
 async def connect(sid, environ):
-    print(f"✅ Client connected: {sid}")
+    print(f"✅ WebSocket client connected: {sid}")
 
 @sio.event
 async def register_robot(sid, data):
@@ -24,21 +35,6 @@ async def register_robot(sid, data):
         print(f"🤖 Robot registered: {robot_id} (SID: {sid})")
 
 @sio.event
-async def register_ui(sid, data):
-    robot_id = data.get("robot_id")
-    if robot_id:
-        ui_connections.setdefault(robot_id, []).append(sid)
-        print(f"🧑‍💻 UI registered for {robot_id} (SID: {sid})")
-
-        # Send last known status (if any)
-        if robot_id in last_known_status:
-            await sio.emit("status", {
-                "robot_id": robot_id,
-                "status": last_known_status[robot_id]
-            }, to=sid)
-            print(f"↩️ Sent last known status to UI for {robot_id}")
-
-@sio.event
 async def command_to_robot(sid, data):
     robot_id = data.get("robot_id")
     command = data.get("command")
@@ -46,31 +42,52 @@ async def command_to_robot(sid, data):
 
     if target_sid:
         await sio.emit("command", {"command": command}, to=target_sid)
-        print(f"📤 Sent command '{command}' to {robot_id}")
+        print(f"📤 Sent '{command}' to {robot_id}")
     else:
-        print(f"⚠️ Robot {robot_id} is not connected")
+        print(f"⚠️ Robot {robot_id} not connected")
 
 @sio.event
 async def status_update(sid, data):
     robot_id = data.get("robot_id")
     status = data.get("status")
-    last_known_status[robot_id] = status
     print(f"📥 Status from {robot_id}: {status}")
-
-    # Send to all registered UIs for this robot
-    for ui_sid in ui_connections.get(robot_id, []):
-        await sio.emit("status", data, to=ui_sid)
+    await sio.emit("status", data)
 
 @sio.event
 async def disconnect(sid):
-    # Remove from robot list
     for rid, rsid in list(robot_connections.items()):
         if rsid == sid:
             del robot_connections[rid]
             print(f"❌ Robot disconnected: {rid}")
 
-    # Remove from UI list
-    for rid, sid_list in list(ui_connections.items()):
-        if sid in sid_list:
-            sid_list.remove(sid)
-            print(f"❌ UI disconnected from {rid}")
+# === REST API ===
+
+@app.get("/api/myrobots")
+async def get_my_robots(request: Request):
+    try:
+        # Extract Cognito JWT from header
+        auth_header = request.headers.get("authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise ValueError("Missing or invalid Authorization header")
+        token = auth_header.split(" ")[1]
+
+        # Decode JWT without signature verification (for dev only)
+        decoded = jwt.decode(token, options={"verify_signature": False})
+        user_email = decoded.get("email")
+        if not user_email:
+            raise ValueError("Email not found in token")
+
+        # Query DynamoDB
+        dynamodb = boto3.client("dynamodb", region_name="ca-central-1")
+        response = dynamodb.query(
+            TableName="UserRobotMapping",
+            KeyConditionExpression="email = :e",
+            ExpressionAttributeValues={":e": {"S": user_email}},
+        )
+
+        robot_ids = [item["robot_id"]["S"] for item in response.get("Items", [])]
+        return JSONResponse(content=robot_ids)
+
+    except Exception as e:
+        print("🚨 Error in /api/myrobots:", e)
+        return JSONResponse(status_code=401, content={"error": str(e)})
