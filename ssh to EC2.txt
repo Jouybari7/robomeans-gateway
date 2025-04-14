@@ -1,0 +1,29 @@
+ssh -i robomeans-key.pem ubuntu@ip
+
+cd robomeans-gateway/
+
+source ~/robomeans-gateway/venv/bin/activate
+
+tmux new -s uvicorn_server
+
+
+uvicorn main:socket_app --host 0.0.0.0 --port 8000
+
+
+Press Ctrl + B, then D close the terminal.
+
+
+
+To reconnect:
+tmux attach -t uvicorn_server
+
+To kill the service:
+
+tmux kill-session -t uvicorn_server
+
+
+
+
+
+
+
