@@ -21,6 +21,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# === In-memory session tracking for UI sessions ===
+active_ui_sessions = {}  # email -> sid
+
 # === WebSocket Events ===
 
 @sio.event
@@ -33,6 +36,22 @@ async def register_robot(sid, data):
     if robot_id:
         robot_connections[robot_id] = sid
         print(f"🤖 Robot registered: {robot_id} (SID: {sid})")
+
+@sio.event
+async def register_ui(sid, data):
+    email = data.get("email")
+    if not email:
+        print("❌ UI tried to register without email.")
+        return
+
+    previous_sid = active_ui_sessions.get(email)
+    if previous_sid and previous_sid != sid:
+        print(f"⚠️ Duplicate login for {email}. Kicking old session {previous_sid}")
+        await sio.emit("force_logout", {}, to=previous_sid)
+        await sio.disconnect(previous_sid)
+
+    active_ui_sessions[email] = sid
+    print(f"🧑 UI registered: {email} (SID: {sid})")
 
 @sio.event
 async def command_to_robot(sid, data):
@@ -55,10 +74,17 @@ async def status_update(sid, data):
 
 @sio.event
 async def disconnect(sid):
+    # Clean up robot SID
     for rid, rsid in list(robot_connections.items()):
         if rsid == sid:
             del robot_connections[rid]
             print(f"❌ Robot disconnected: {rid}")
+
+    # Clean up UI SID
+    for email, esid in list(active_ui_sessions.items()):
+        if esid == sid:
+            del active_ui_sessions[email]
+            print(f"❌ UI session disconnected for {email}")
 
 # === REST API ===
 
