@@ -5,7 +5,6 @@ from starlette.responses import JSONResponse
 from robot_manager import robot_connections
 import boto3
 import jwt  # PyJWT
-import os
 
 # === FastAPI and Socket.IO setup ===
 sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins="*")
@@ -15,7 +14,7 @@ socket_app = socketio.ASGIApp(sio, app)
 # === Allow CORS for frontend ===
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For production, limit this to your frontend domain
+    allow_origins=["*"],  # 🔐 In production, set to your frontend domain
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -40,6 +39,8 @@ async def register_robot(sid, data):
 @sio.event
 async def register_ui(sid, data):
     email = data.get("email")
+    robot_ids = data.get("robot_ids", [])
+
     if not email:
         print("❌ UI tried to register without email.")
         return
@@ -52,6 +53,10 @@ async def register_ui(sid, data):
 
     active_ui_sessions[email] = sid
     print(f"🧑 UI registered: {email} (SID: {sid})")
+
+    # Register all robot IDs that belong to this user (for logging)
+    for rid in robot_ids:
+        print(f"📡 UI controls robot: {rid}")
 
 @sio.event
 async def command_to_robot(sid, data):
@@ -74,13 +79,11 @@ async def status_update(sid, data):
 
 @sio.event
 async def disconnect(sid):
-    # Clean up robot SID
     for rid, rsid in list(robot_connections.items()):
         if rsid == sid:
             del robot_connections[rid]
             print(f"❌ Robot disconnected: {rid}")
 
-    # Clean up UI SID
     for email, esid in list(active_ui_sessions.items()):
         if esid == sid:
             del active_ui_sessions[email]
@@ -91,13 +94,13 @@ async def disconnect(sid):
 @app.get("/api/myrobots")
 async def get_my_robots(request: Request):
     try:
-        # Extract Cognito JWT from header
+        # Extract Cognito JWT
         auth_header = request.headers.get("authorization")
         if not auth_header or not auth_header.startswith("Bearer "):
             raise ValueError("Missing or invalid Authorization header")
         token = auth_header.split(" ")[1]
 
-        # Decode JWT without signature verification (for dev only)
+        # Decode JWT (skip signature verification for dev)
         decoded = jwt.decode(token, options={"verify_signature": False})
         user_email = decoded.get("email")
         if not user_email:
@@ -111,8 +114,16 @@ async def get_my_robots(request: Request):
             ExpressionAttributeValues={":e": {"S": user_email}},
         )
 
-        robot_ids = [item["robot_id"]["S"] for item in response.get("Items", [])]
-        return JSONResponse(content=robot_ids)
+        items = response.get("Items", [])
+        robots = [
+            {
+                "robot_id": item["robot_id"]["S"],
+                "ui_type": item.get("ui_type", {}).get("S", "default")
+            }
+            for item in items
+        ]
+
+        return JSONResponse(content={"robots": robots})
 
     except Exception as e:
         print("🚨 Error in /api/myrobots:", e)
