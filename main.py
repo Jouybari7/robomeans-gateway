@@ -1,5 +1,5 @@
 import socketio
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 from robot_manager import robot_connections
@@ -170,3 +170,66 @@ async def get_robot_state_route(robot_id: str):
     if state:
         return JSONResponse(content=state)
     return JSONResponse(status_code=404, content={"error": "Robot state not found"})
+
+@app.post("/api/save_missions")
+async def save_missions(request: Request):
+    try:
+        auth_header = request.headers.get("authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise ValueError("Missing or invalid Authorization header")
+
+        token = auth_header.split(" ")[1]
+        decoded = jwt.decode(token, options={"verify_signature": False})
+        email = decoded.get("email")
+        if not email:
+            raise ValueError("Email not found in token")
+
+        body = await request.json()
+        robot_id = body.get("robot_id")
+        missions = body.get("missions")
+
+        if not robot_id or not isinstance(missions, list):
+            raise HTTPException(status_code=400, detail="Invalid mission payload")
+
+        dynamodb = boto3.resource("dynamodb", region_name="ca-central-1")
+        table = dynamodb.Table("UserRobotMissions")
+
+        table.put_item(Item={
+            "email": email,
+            "robot_id": robot_id,
+            "missions": missions
+        })
+
+        return {"status": "saved"}
+
+    except Exception as e:
+        print("🚨 Error saving missions:", e)
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.get("/api/get_missions/{robot_id}")
+async def get_missions(robot_id: str, request: Request):
+    try:
+        auth_header = request.headers.get("authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise ValueError("Missing or invalid Authorization header")
+        token = auth_header.split(" ")[1]
+
+        decoded = jwt.decode(token, options={"verify_signature": False})
+        email = decoded.get("email")
+        if not email:
+            raise ValueError("Email not found in token")
+
+        dynamodb = boto3.resource("dynamodb", region_name="ca-central-1")
+        table = dynamodb.Table("UserRobotMissions")
+
+        response = table.get_item(Key={"email": email, "robot_id": robot_id})
+        item = response.get("Item")
+
+        if item and "missions" in item:
+            return {"missions": item["missions"]}
+        else:
+            return {"missions": []}
+
+    except Exception as e:
+        print("🚨 Error fetching missions:", e)
+        return JSONResponse(status_code=500, content={"error": str(e)})
