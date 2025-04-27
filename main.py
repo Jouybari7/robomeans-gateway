@@ -8,6 +8,7 @@ import jwt  # PyJWT
 import redis
 import json
 import ssl
+from decimal import Decimal
 
 # === Redis (Valkey) Setup ===
 redis_client = redis.Redis(
@@ -35,6 +36,20 @@ app.add_middleware(
 
 # === In-memory session tracking for UI sessions ===
 active_ui_sessions = {}  # email -> sid
+
+
+
+def convert_floats_to_decimals(obj):
+    if isinstance(obj, float):
+        return Decimal(str(obj))  # important to use str to avoid precision issues
+    elif isinstance(obj, list):
+        return [convert_floats_to_decimals(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {k: convert_floats_to_decimals(v) for k, v in obj.items()}
+    else:
+        return obj
+
+
 
 # === Utility Functions ===
 def set_robot_state(robot_id, data):
@@ -191,6 +206,9 @@ async def save_missions(request: Request):
         if not robot_id or not isinstance(missions, list):
             raise HTTPException(status_code=400, detail="Invalid mission payload")
 
+        # ✅ Convert floats to Decimals here
+        missions = convert_floats_to_decimals(missions)
+
         dynamodb = boto3.resource("dynamodb", region_name="ca-central-1")
         table = dynamodb.Table("UserRobotMissions")
 
@@ -205,6 +223,8 @@ async def save_missions(request: Request):
     except Exception as e:
         print("🚨 Error saving missions:", e)
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 
 @app.get("/api/get_missions/{robot_id}")
 async def get_missions(robot_id: str, request: Request):
