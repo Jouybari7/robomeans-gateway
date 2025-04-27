@@ -171,7 +171,7 @@ async def get_robot_state_route(robot_id: str):
         return JSONResponse(content=state)
     return JSONResponse(status_code=404, content={"error": "Robot state not found"})
 
-@app.post("/api/save_missions/{robot_id}")
+@app.post("/api/save_missions")
 async def save_missions(request: Request):
     try:
         auth_header = request.headers.get("authorization")
