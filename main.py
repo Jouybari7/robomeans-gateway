@@ -250,6 +250,10 @@ async def get_missions(robot_id: str, request: Request):
         else:
             return {"missions": []}
 
+
+@app.get("/")
+async def root():
+    return {"message": "Robomeans API Server is running 🚀"}
     except Exception as e:
         print("🚨 Error fetching missions:", e)
         return JSONResponse(status_code=500, content={"error": str(e)})
