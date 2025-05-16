@@ -141,6 +141,17 @@ async def disconnect(sid):
         if esid == sid:
             del active_ui_sessions[email]
             print(f"❌ UI session disconnected for {email}")
+@sio.event
+async def robot_image(sid, data):
+    robot_id = data.get("robot_id")
+    image_base64 = data.get("image_base64")
+    if not robot_id or not image_base64:
+        print("❌ Missing robot_id or image_base64 in robot_image event")
+        return
+
+    event_name = f"robot_image_{robot_id}"
+    await sio.emit(event_name, {"image_base64": image_base64})
+    print(f"📡 Relayed image from {robot_id} to UI clients")
 
 # === REST API ===
 
